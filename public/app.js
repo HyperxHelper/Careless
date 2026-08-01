@@ -29,12 +29,24 @@ const state = {
   conversations: [],
   activeConv: null,
   profile: null,
+  profileOwner: null,
+  profileError: null,
+  profileTarget: null,
+  loadedProfileUsername: null,
+  searchQuery: '',
+  searchResults: [],
   feedTab: 'providers',
   filters: { search: '', governorate: '', role: '' },
   authMode: 'login',
   pendingPayment: null,
   toastTimer: null,
   waitlistCount: null,
+  stats: null,
+};
+
+const ROUTES = {
+  home: '/', feed: '/feed', search: '/search', post: '/post',
+  messages: '/messages', doctors: '/doctors', profile: '/profile',
 };
 
 const I = {
@@ -43,6 +55,7 @@ const I = {
   post: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
   messages: '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>',
   doctors: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+  search: '<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
   profile: '<circle cx="12" cy="8" r="4"/><path d="M6 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>',
 };
 
@@ -59,6 +72,18 @@ function esc(v) {
 
 function initials(name) {
   return (name || '?').trim().split(/\s+/).map((n) => n[0]).join('').slice(0, 2).toUpperCase();
+}
+
+function avatarContent(name, image) {
+  return image ? `<img src="${esc(image)}" alt="" loading="lazy" />` : esc(initials(name));
+}
+
+function youtubeEmbed(url) {
+  if (!url) return null;
+  const m = String(url).match(
+    /(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{6,20})/
+  );
+  return m ? 'https://www.youtube-nocookie.com/embed/' + m[1] : null;
 }
 
 function money(v) {
@@ -97,17 +122,27 @@ function toast(message, type) {
 
 async function api(endpoint, options) {
   const token = localStorage.getItem(TOKEN_KEY);
-  const res = await fetch(API_BASE + endpoint, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: 'Bearer ' + token } : {}),
-      ...(options && options.headers ? options.headers : {}),
-    },
-  });
+  let res;
+  try {
+    res = await fetch(API_BASE + endpoint, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: 'Bearer ' + token } : {}),
+        ...(options && options.headers ? options.headers : {}),
+      },
+    });
+  } catch (e) {
+    const err = new Error('Cannot reach the server. Start it with "npm start" and open http://localhost:3000.');
+    err.status = 0;
+    throw err;
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err = new Error(data.error || data.message || 'Request failed');
+    const err = new Error(
+      data.error || data.message ||
+      ('Request failed (HTTP ' + res.status + '). The page must be served by the Node server (npm start), not a static file server.')
+    );
     err.status = res.status;
     err.data = data;
     throw err;
@@ -140,25 +175,43 @@ function renderApp() {
   const user = state.user;
   const v = state.view;
 
-  const navItems = [
-    ['home', 'Home'], ['feed', 'Care Feed'], ['post', 'Post a Need'],
+  const navAll = [
+    ['home', 'Home'], ['feed', 'Care Feed'], ['search', 'Search'], ['post', 'Post a Need'],
     ['messages', 'Messages'], ['doctors', 'Doctors'],
   ];
-  if (user) navItems.push(['profile', 'Profile']);
+  if (user) navAll.push(['profile', 'Profile']);
 
-  const topNav = navItems.map(([id, label]) =>
-    `<button class="nav-link${v === id ? ' active' : ''}" data-nav="${id}">${icon(id)}<span>${label}</span></button>`
-  ).join('');
+  const navLink = ([id, label]) =>
+    `<button class="nav-link${v === id ? ' active' : ''}" data-nav="${id}">${icon(id)}<span>${esc(label)}</span></button>`;
 
-  const authZone = user
-    ? `<span class="user-chip" title="${esc(user.full_name)}"><span class="avatar">${esc(initials(user.full_name))}</span><span class="user-name">${esc(user.full_name.split(' ')[0])}</span></span>
+  const topNav = `
+    <div class="nav-group">${[['home', 'Home'], ['feed', 'Care Feed'], ['search', 'Search']].map(navLink).join('')}</div>
+    <span class="nav-divider" aria-hidden="true"></span>
+    <div class="nav-group">${[['messages', 'Messages'], ['doctors', 'Doctors']].map(navLink).join('')}</div>
+    <button class="btn btn-primary btn-sm nav-cta" data-nav="post">${icon('post', 'btn-icon')} Post a Need</button>
+  `;
+
+  const headerActions = user
+    ? `<button class="user-chip" data-nav="profile" title="Your profile">
+         <span class="avatar">${avatarContent(user.full_name, user.profile_image)}</span>
+         <span class="user-name">${esc(user.full_name.split(' ')[0])}</span>
+       </button>
+       <button class="icon-btn header-search" data-nav="search" aria-label="Search">${icon('search')}</button>
        <button class="btn btn-ghost btn-sm" data-action="logout">Sign Out</button>`
-    : `<button class="btn btn-ghost btn-sm" data-action="login">Sign In</button>
+    : `<button class="icon-btn header-search" data-nav="search" aria-label="Search">${icon('search')}</button>
+       <button class="btn btn-ghost btn-sm" data-action="login">Sign In</button>
        <button class="btn btn-primary btn-sm" data-action="signup">Sign Up</button>`;
 
-  const bottomNav = navItems.slice(0, 5).map(([id, label]) =>
-    `<button class="nav-item${v === id ? ' active' : ''}" data-nav="${id}">${icon(id)}<span>${label === 'Care Feed' ? 'Feed' : label === 'Post a Need' ? 'Post' : label}</span>${id === 'doctors' ? '<span class="nav-item-badge">Soon</span>' : ''}</button>`
-  ).join('');
+  const bottomItem = ([id, label]) =>
+    `<button class="nav-item${v === id ? ' active' : ''}" data-nav="${id}">${icon(id)}<span>${esc(label)}</span></button>`;
+
+  const bottomNav = `
+    ${bottomItem(['home', 'Home'])}
+    ${bottomItem(['feed', 'Feed'])}
+    <button class="nav-fab${v === 'post' ? ' active' : ''}" data-nav="post" aria-label="Post a Care Need">${icon('post', 'fab-icon')}<span>Post</span></button>
+    ${bottomItem(['search', 'Search'])}
+    ${bottomItem(['messages', 'Messages'])}
+  `;
 
   app.innerHTML = `
     <header class="site-header">
@@ -167,11 +220,11 @@ function renderApp() {
           <span class="brand-mark">C</span>
           <span class="brand-text">
             <span class="brand-title">Careless</span>
-            <span class="brand-sub">Tunisia Healthcare Network</span>
+            <span class="brand-sub">Open Healthcare Network</span>
           </span>
         </button>
         <nav class="topnav" aria-label="Primary">${topNav}</nav>
-        <div class="auth-zone">${authZone}</div>
+        <div class="header-actions">${headerActions}</div>
       </div>
     </header>
 
@@ -184,18 +237,19 @@ function renderApp() {
         <div class="footer-brand">
           <div class="brand" style="pointer-events:none;">
             <span class="brand-mark">C</span>
-            <span class="brand-text"><span class="brand-title">Careless</span><span class="brand-sub" style="color:rgba(255,255,255,.6);">Tunisia Healthcare Network</span></span>
+            <span class="brand-text"><span class="brand-title">Careless</span><span class="brand-sub" style="color:rgba(255,255,255,.6);">Open Healthcare Network</span></span>
           </div>
           <p>An open-source marketplace connecting patients and families with independent nurses, doctors and caregivers across Tunisia. Transparent pricing in TND. Video-first trust.</p>
         </div>
         <div>
           <h4>Platform</h4>
-          ${navItems.map(([id, label]) => `<button class="footer-link" data-nav="${id}">${esc(label)}</button>`).join('')}
+          ${navAll.map(([id, label]) => `<button class="footer-link" data-nav="${id}">${esc(label)}</button>`).join('')}
         </div>
         <div>
           <h4>Safety</h4>
           <span class="footer-link-static">Emergency: SAMU 190</span>
           <span class="footer-link-static">Providers are independent contractors</span>
+          <span class="footer-link-static">We do not hold funds or responsibility</span>
           <span class="footer-link-static">Video-first verification</span>
         </div>
       </div>
@@ -207,6 +261,7 @@ function renderApp() {
 
   bindShell();
   bindView();
+  pageIntro();
 }
 
 function bindShell() {
@@ -223,22 +278,51 @@ function bindShell() {
   });
 }
 
-function go(view) {
-  if ((view === 'messages' || view === 'profile') && !state.user) {
+function go(view, target) {
+  if (view === 'messages' && !state.user) {
+    openAuthModal('login');
+    toast('Please sign in to continue.');
+    return;
+  }
+  if (view === 'profile' && !target && !state.user) {
     openAuthModal('login');
     toast('Please sign in to continue.');
     return;
   }
   state.view = view;
+  state.profileTarget = (view === 'profile' && target) ? target : null;
+  const path = view === 'profile' && target ? '/u/' + encodeURIComponent(target) : (ROUTES[view] || '/');
+  if (window.location.pathname !== path) history.pushState({ view }, '', path);
   window.scrollTo({ top: 0 });
   renderApp();
 }
+
+function parseRoute() {
+  const p = window.location.pathname;
+  if (p === '/feed') return { view: 'feed' };
+  if (p === '/search') return { view: 'search' };
+  if (p === '/post') return { view: 'post' };
+  if (p === '/messages') return { view: 'messages' };
+  if (p === '/doctors') return { view: 'doctors' };
+  if (p === '/profile') return { view: 'profile' };
+  const um = p.match(/^\/u\/(.+)$/);
+  if (um) return { view: 'profile', target: decodeURIComponent(um[1]) };
+  return { view: 'home' };
+}
+
+window.addEventListener('popstate', () => {
+  const r = parseRoute();
+  state.view = r.view;
+  state.profileTarget = r.target || null;
+  renderApp();
+});
 
 /* ═══════════ VIEWS ═══════════ */
 
 function renderView() {
   switch (state.view) {
     case 'feed': return viewFeed();
+    case 'search': return viewSearch();
     case 'post': return viewPost();
     case 'messages': return viewMessages();
     case 'doctors': return viewDoctors();
@@ -252,18 +336,28 @@ function viewHome() {
   return `
     <section class="view">
       <div class="hero">
-        <span class="hero-badge">&#10003; Trusted open healthcare network</span>
-        <h1 class="hero-title">Healthcare that <em>stays</em> in Tunisia</h1>
-        <p class="hero-sub">Connect with verified nurses, doctors and caregivers across all 24 governorates. Clear TND pricing, no hidden fees, and a secure video-first consultation before any physical visit.</p>
-        <div class="hero-actions">
+        <span class="hero-badge" data-intro>&#10003; Trusted open healthcare network</span>
+        <h1 class="hero-title" data-intro>Healthcare that <em>stays</em> in Tunisia</h1>
+        <p class="hero-sub" data-intro>Connect with verified nurses, doctors and caregivers across all 24 governorates. Transparent TND pricing paid directly to providers, and a secure video-first consultation before any physical visit.</p>
+        <div class="hero-actions" data-intro>
           <button class="btn btn-primary btn-lg" data-role="patient">I Need Care</button>
           <button class="btn btn-outline btn-lg" data-role="provider">I'm a Healthcare Provider</button>
         </div>
       </div>
 
+      <section class="stats-band" data-intro>
+        <div class="stats-band-head">Live from the open network</div>
+        <div class="stats-grid">
+          <div class="stat"><span class="stat-num" data-stat="nurses">0</span><span class="stat-label">Nurses</span></div>
+          <div class="stat"><span class="stat-num" data-stat="doctors">0</span><span class="stat-label">Doctors</span></div>
+          <div class="stat"><span class="stat-num" data-stat="completed_cases">0</span><span class="stat-label">Cases cared for</span></div>
+          <div class="stat"><span class="stat-num" data-stat="connections">0</span><span class="stat-label">Trusted connections</span></div>
+        </div>
+      </section>
+
       <div class="trust-strip">
         <div class="trust-item"><strong>24</strong><span>Governorates covered</span></div>
-        <div class="trust-item"><strong>15%</strong><span>One-time platform fee</span></div>
+        <div class="trust-item"><strong>Direct</strong><span>Pay providers, not the platform</span></div>
         <div class="trust-item"><strong>Video-first</strong><span>Safety gate</span></div>
         <div class="trust-item"><strong>TND</strong><span>Transparent pricing</span></div>
       </div>
@@ -392,6 +486,7 @@ async function loadFeed() {
         ? needs.map(needCard).join('')
         : emptyState('No care needs found', 'Try adjusting your filters or post a new care need.', 'post');
     }
+    gridIntro(grid);
   } catch (e) {
     grid.innerHTML = emptyState('Unable to load the care feed', e.message || 'Please try again.', null);
   }
@@ -422,12 +517,16 @@ function providerCard(p) {
   const rate = p.hourly_rate
     ? `<div class="rate"><span class="rate-amount">${esc(money(p.hourly_rate))} TND</span><span class="rate-period">/ hour</span></div>`
     : '<div class="rate"><span class="rate-none">Rate on request</span></div>';
+  const username = p.username ? `<a class="card-username" href="/u/${encodeURIComponent(p.username)}" data-nav-profile="${esc(p.username)}">@${esc(p.username)}</a>` : '';
+  const profileHref = '/u/' + encodeURIComponent(p.username || '');
+  const viewProfile = p.username ? `<a class="btn btn-ghost btn-sm" href="${profileHref}" data-nav-profile="${esc(p.username)}">View Profile</a>` : '';
   return `
     <article class="card provider-card">
       <div class="card-head">
-        <div class="provider-avatar">${esc(initials(p.full_name))}</div>
+        <div class="provider-avatar">${avatarContent(p.full_name, p.profile_image)}</div>
         <div>
           <h3 class="card-title">${esc(p.full_name)}</h3>
+          ${username ? '<p class="card-meta">' + username + '</p>' : ''}
           <p class="card-meta">${role} &middot; ${gov} &middot; ${specs}</p>
         </div>
       </div>
@@ -435,6 +534,7 @@ function providerCard(p) {
       ${rate}
       <p class="bio">${esc(p.bio || 'No bio available yet.')}</p>
       <div class="card-actions">
+        ${viewProfile}
         <button class="btn btn-secondary" data-message-provider="${esc(p.id)}">Message</button>
         <button class="btn btn-primary" data-video-provider="${esc(p.id)}">Book Video Consult</button>
       </div>
@@ -452,12 +552,16 @@ function needCard(n) {
   const schedule = n.schedule ? `<span class="badge badge-schedule">${esc(n.schedule)}</span>` : '';
   const loc = n.governorate ? `<span class="badge badge-location">${esc(n.governorate)}</span>` : '';
   const roleReq = n.required_role ? `<span class="badge badge-role">Needs: ${esc(roleLabel(n.required_role))}</span>` : '';
+  const patientName = n.patient_name ? esc(n.patient_name) : 'Patient';
+  const patientHandle = n.patient_username
+    ? `<a class="card-username" href="/u/${encodeURIComponent(n.patient_username)}" data-nav-profile="${esc(n.patient_username)}">@${esc(n.patient_username)}</a>`
+    : '';
   return `
     <article class="card need-card">
       <div class="card-head">
         <div>
           <h3 class="card-title">${esc(n.title)}</h3>
-          <p class="card-meta">Patient &middot; ${esc(n.governorate || 'Tunisia')} &middot; ${esc(timeAgo(n.created_at))}</p>
+          <p class="card-meta">${patientName}${patientHandle ? ' &middot; ' + patientHandle : ''} &middot; ${esc(n.governorate || 'Tunisia')} &middot; ${esc(timeAgo(n.created_at))}</p>
         </div>
         ${urgent}
       </div>
@@ -596,15 +700,17 @@ function renderConversations() {
     const isPatient = c.patient_id === state.user.id;
     const otherName = isPatient ? c.provider_name : c.patient_name;
     const otherId = isPatient ? c.provider_id : c.patient_id;
+    const otherUsername = isPatient ? c.provider_username : c.patient_username;
+    const otherImage = isPatient ? c.provider_image : c.patient_image;
     const unread = Number(c.unread_count) > 0 ? `<span class="unread-dot">${c.unread_count}</span>` : '';
     const preview = c.is_chat_unlocked
       ? (c.last_message || 'Start the conversation')
       : '<span style="color:var(--warning)">&#128274; Locked — book first video consult</span>';
     return `
       <button class="conv-row${state.activeConv === c.id ? ' active' : ''}" data-conv="${esc(c.id)}" data-other="${esc(otherId)}">
-        <span class="conv-avatar">${esc(initials(otherName))}</span>
+        <span class="conv-avatar">${avatarContent(otherName, otherImage)}</span>
         <span class="conv-info">
-          <span class="conv-name">${esc(otherName)}${unread}</span>
+          <span class="conv-name">${esc(otherName)}${otherUsername ? ' <span class="conv-handle">@' + esc(otherUsername) + '</span>' : ''}${unread}</span>
           <span class="conv-preview">${preview}</span>
         </span>
         <span class="conv-meta">${esc(timeAgo(c.last_message_at))}</span>
@@ -766,10 +872,46 @@ async function loadWaitlistCount() {
   } catch (e) { /* optional */ }
 }
 
+/* ── STATS & ANIMATIONS ── */
+function countUp(el, to) {
+  const target = Number(to) || 0;
+  if (window.anime) {
+    const obj = { v: 0 };
+    anime({ targets: obj, v: target, easing: 'easeOutExpo', duration: 1600, round: 1, update: () => { el.textContent = Math.round(obj.v); } });
+  } else {
+    el.textContent = target;
+  }
+}
+
+async function loadStats() {
+  let s = state.stats;
+  if (!s) {
+    try { s = await api('/stats'); state.stats = s; } catch (e) { s = { nurses: 0, doctors: 0, completed_cases: 0, connections: 0 }; }
+  }
+  document.querySelectorAll('[data-stat]').forEach((el) => countUp(el, s[el.dataset.stat]));
+}
+
+function pageIntro() {
+  if (!window.anime) return;
+  const els = document.querySelectorAll('[data-intro]');
+  if (!els.length) return;
+  anime({ targets: els, opacity: [0, 1], translateY: [18, 0], easing: 'easeOutCubic', duration: 550, delay: anime.stagger(85) });
+}
+
+function gridIntro(grid) {
+  if (!window.anime) return;
+  const cards = grid ? grid.querySelectorAll('.card') : document.querySelectorAll('.grid-cards .card');
+  if (!cards.length) return;
+  anime({ targets: cards, opacity: [0, 1], translateY: [20, 0], easing: 'easeOutCubic', duration: 480, delay: anime.stagger(55) });
+}
+
 /* ── PROFILE ── */
 function viewProfile() {
-  const p = state.profile;
-  if (!p) return '<section class="view"><div class="loading"><span class="spinner spinner-dark"></span> Loading profile...</div></section>';
+  if (state.profileTarget) return viewPublicProfile();
+  return viewOwnProfile();
+}
+
+function profileMeta(p) {
   const role = esc(roleLabel(p.role));
   const loc = [p.governorate, p.city].filter(Boolean).join(', ') || 'Tunisia';
   const verified = p.is_verified
@@ -778,16 +920,93 @@ function viewProfile() {
   const rating = p.rating && Number(p.rating) > 0
     ? `<span class="badge badge-rating">&#9733; ${Number(p.rating).toFixed(1)} (${Number(p.review_count) || 0})</span>` : '';
   const specs = Array.isArray(p.specialties) && p.specialties.length ? esc(p.specialties.join(', ')) : '—';
+  return { role, loc, verified, rating, specs };
+}
+
+function viewOwnProfile() {
+  const p = state.profile;
+  if (!p) return '<section class="view"><div class="loading"><span class="spinner spinner-dark"></span> Loading profile...</div></section>';
+  const { role, loc, verified, rating, specs } = profileMeta(p);
+  const youTube = youtubeEmbed(p.youtube_url);
+  const presentation = youTube
+    ? `<section class="section">
+        <div class="section-head"><h2 class="section-title">Presentation</h2><p class="section-sub">Your introduction video, hosted on YouTube.</p></div>
+        <div class="video-embed">${youTube}</div>
+      </section>`
+    : '';
   return `
     <section class="view">
-      <div class="profile-head">
-        <div class="provider-avatar big">${esc(initials(p.full_name))}</div>
-        <div>
-          <h1>${esc(p.full_name)}</h1>
-          <p>${role} &middot; ${esc(loc)}</p>
-          <div class="badges" style="margin-top:8px;">${verified}${rating}</div>
+      <div class="profile-cover"></div>
+      <div class="profile-header">
+        <div class="profile-avatar-wrap">
+          <div class="provider-avatar big">${avatarContent(p.full_name, p.profile_image)}</div>
+          <label class="avatar-upload" for="profile-image-input" title="Change profile photo">
+            <span>Upload photo</span>
+          </label>
+          <input type="file" id="profile-image-input" accept="image/png,image/jpeg,image/gif,image/webp" hidden />
+        </div>
+        <div class="profile-header-main">
+          <div class="profile-name-row">
+            <h1>${esc(p.full_name)}</h1>
+            <div class="badges" style="margin:0;">${verified}${rating}</div>
+          </div>
+          <p class="profile-handle">@${esc(p.username || '')}</p>
+          <p class="profile-meta">${role} &middot; ${esc(loc)}</p>
+          <p class="profile-bio">${esc(p.bio || 'No bio yet.')}</p>
+        </div>
+        <div class="profile-header-actions">
+          <button class="btn btn-ghost btn-sm" id="copy-profile-link" type="button">Copy profile link</button>
         </div>
       </div>
+
+      ${p.hourly_rate ? `<div class="rate" style="margin-bottom:18px;"><span class="rate-amount">${esc(money(p.hourly_rate))} TND</span><span class="rate-period">/ hour</span></div>` : ''}
+
+      ${presentation}
+
+      <section class="section">
+        <div class="form-card" style="max-width:820px;">
+          <div class="section-head"><h2 class="section-title">Edit public profile</h2><p class="section-sub">This information is visible to everyone on Careless.</p></div>
+          <form id="profile-edit-form" novalidate>
+            <div class="form-grid">
+              <div class="form-field">
+                <label class="form-label" for="pe-username">Username</label>
+                <input class="form-input" id="pe-username" value="${esc(p.username || '')}" placeholder="your_username" autocomplete="off" />
+              </div>
+              <div class="form-field">
+                <label class="form-label" for="pe-phone">Phone</label>
+                <input class="form-input" id="pe-phone" value="${esc(p.phone || '')}" placeholder="+216 ..." autocomplete="tel" />
+                <p class="hint">Only shown to people you follow, and to your followers.</p>
+              </div>
+              <div class="form-field">
+                <label class="form-label" for="pe-governorate">Governorate</label>
+                <select class="form-select" id="pe-governorate">
+                  <option value="">Select governorate</option>
+                  ${GOVERNORATES.map((g) => `<option value="${g}"${p.governorate === g ? ' selected' : ''}>${g}</option>`).join('')}
+                </select>
+              </div>
+              <div class="form-field">
+                <label class="form-label" for="pe-city">City</label>
+                <input class="form-input" id="pe-city" value="${esc(p.city || '')}" placeholder="City" autocomplete="address-level2" />
+              </div>
+              <div class="form-field">
+                <label class="form-label" for="pe-rate">Hourly rate (TND)</label>
+                <input class="form-input" id="pe-rate" type="number" min="0" step="0.5" value="${p.hourly_rate != null ? esc(p.hourly_rate) : ''}" placeholder="e.g. 25" />
+              </div>
+              <div class="form-field">
+                <label class="form-label" for="pe-youtube">YouTube presentation</label>
+                <input class="form-input" id="pe-youtube" type="url" value="${esc(p.youtube_url || '')}" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off" />
+                <p class="hint">Paste a YouTube link to your intro/presentation video. It plays on your public profile.</p>
+              </div>
+            </div>
+            <div class="form-field">
+              <label class="form-label" for="pe-bio">Bio</label>
+              <textarea class="form-input" id="pe-bio" rows="3" placeholder="Tell people about your care...">${esc(p.bio || '')}</textarea>
+            </div>
+            <button class="btn btn-primary" type="submit">Save changes</button>
+          </form>
+        </div>
+      </section>
+
       <div class="grid-2">
         <div class="form-card">
           <h2 class="section-title" style="font-size:1.1rem; margin-bottom:14px;">Account</h2>
@@ -803,9 +1022,104 @@ function viewProfile() {
           <div class="kv-item"><span class="kv-label">License</span><span class="kv-value">${esc(p.license_number || 'Not provided')}</span></div>
           <div class="kv-item"><span class="kv-label">License issuer</span><span class="kv-value">${esc(p.license_issuer || '—')}</span></div>
           <div class="kv-item"><span class="kv-label">KYC status</span><span class="kv-value">${esc(p.kyc_status || 'unverified')}</span></div>
-          <p class="bio" style="margin-top:14px;">${esc(p.bio || 'No bio yet.')}</p>
         </div>
       </div>
+    </section>
+  `;
+}
+
+function viewPublicProfile() {
+  const p = state.profileOwner;
+  if (!p) {
+    const msg = state.profileError || 'Loading profile...';
+    const isErr = !!state.profileError;
+    return `<section class="view">${isErr
+      ? `<div class="empty"><h3>Profile not found</h3><p>${esc(msg)}</p><button class="btn btn-primary" data-nav="search">Search people</button></div>`
+      : '<div class="loading"><span class="spinner spinner-dark"></span> Loading profile...</div>'}</section>`;
+  }
+  const { role, loc, verified, rating } = profileMeta(p);
+  const isOwn = state.user && state.user.id === p.id;
+  const providerRole = ['nurse', 'doctor', 'nursing_student', 'medical_student', 'clinic'].includes(p.role);
+  const followBtn = isOwn
+    ? ''
+    : `<button class="btn ${p.is_following ? 'btn-ghost' : 'btn-primary'}" data-follow="${esc(p.id)}" data-following="${p.is_following}"><span>${p.is_following ? 'Following' : 'Follow'}</span></button>`;
+  const actions = isOwn
+    ? `<button class="btn btn-ghost btn-sm" data-nav="profile">Edit profile</button>`
+    : `<div class="hero-actions" style="margin:0;">
+        ${followBtn}
+        ${providerRole ? `<button class="btn btn-secondary" data-message-provider="${esc(p.id)}">Message</button>
+        <button class="btn btn-primary" data-video-provider="${esc(p.id)}">Book Video Consult</button>` : ''}
+      </div>`;
+
+  const phoneBlock = p.phone_locked
+    ? `<div class="phone-locked">
+        <span class="phone-lock-icon">&#128274;</span>
+        <div>
+          <strong>Phone number hidden</strong>
+          <p>Follow ${esc(p.full_name.split(' ')[0])} to see their phone number.</p>
+        </div>
+      </div>`
+    : (p.phone
+      ? `<div class="kv-item"><span class="kv-label">Phone</span><span class="kv-value">${esc(p.phone)}</span></div>`
+      : '');
+
+  const youTube = youtubeEmbed(p.youtube_url);
+  const presentation = youTube
+    ? `<section class="section">
+        <div class="section-head"><h2 class="section-title">Presentation</h2><p class="section-sub">${esc(p.full_name.split(' ')[0])}'s introduction, hosted on YouTube.</p></div>
+        <div class="video-embed">${youTube}</div>
+      </section>`
+    : '';
+
+  return `
+    <section class="view">
+      <div class="profile-cover"></div>
+      <div class="profile-header">
+        <div class="profile-avatar-wrap">
+          <div class="provider-avatar big">${avatarContent(p.full_name, p.profile_image)}</div>
+        </div>
+        <div class="profile-header-main">
+          <div class="profile-name-row">
+            <h1>${esc(p.full_name)}</h1>
+            <div class="badges" style="margin:0;">${verified}${rating}</div>
+          </div>
+          <p class="profile-handle">@${esc(p.username || '')}</p>
+          <p class="profile-meta">${role} &middot; ${esc(loc)}</p>
+          <p class="profile-bio">${esc(p.bio || 'No bio yet.')}</p>
+          <div class="profile-stats">
+            <span><strong id="follower-count">${Number(p.follower_count) || 0}</strong> followers</span>
+            <span><strong>${Number(p.following_count) || 0}</strong> following</span>
+          </div>
+        </div>
+        <div class="profile-header-actions">${actions}</div>
+      </div>
+
+      <div class="profile-extra">
+        ${p.hourly_rate
+          ? `<div class="rate"><span class="rate-amount">${esc(money(p.hourly_rate))} TND</span><span class="rate-period">/ hour</span></div>`
+          : ''}
+        ${phoneBlock}
+      </div>
+
+      ${presentation}
+
+      <div class="grid-2">
+        <div class="form-card">
+          <h2 class="section-title" style="font-size:1.1rem; margin-bottom:14px;">About</h2>
+          <div class="kv-item"><span class="kv-label">Member since</span><span class="kv-value">${esc(new Date(p.created_at).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }))}</span></div>
+          ${phoneBlock ? `<div class="kv-item"><span class="kv-label">Phone</span><span class="kv-value">Hidden until followed</span></div>` : ''}
+        </div>
+        <div class="form-card">
+          <h2 class="section-title" style="font-size:1.1rem; margin-bottom:14px;">Professional</h2>
+          <div class="kv-item"><span class="kv-label">Specialties</span><span class="kv-value">${Array.isArray(p.specialties) && p.specialties.length ? esc(p.specialties.join(', ')) : '—'}</span></div>
+          <div class="kv-item"><span class="kv-label">License issuer</span><span class="kv-value">${esc(p.license_issuer || '—')}</span></div>
+        </div>
+      </div>
+
+      <section class="section">
+        <div class="section-head"><h2 class="section-title">Followers</h2></div>
+        <div id="followers-list" class="followers-list"><div class="loading"><span class="spinner spinner-dark"></span></div></div>
+      </section>
     </section>
   `;
 }
@@ -817,6 +1131,247 @@ async function loadProfile() {
   } catch (e) {
     toast('Could not load your profile.', 'error');
   }
+}
+
+async function loadUserProfile(username) {
+  state.profileOwner = null;
+  state.profileError = null;
+  state.loadedProfileUsername = username;
+  try {
+    const p = await api('/users/' + encodeURIComponent(username));
+    state.profileOwner = p;
+    renderApp();
+  } catch (e) {
+    state.profileOwner = null;
+    state.profileError = (e.data && e.data.error) || e.message || 'User not found';
+    renderApp();
+  }
+}
+
+async function loadFollowers(id) {
+  const list = document.getElementById('followers-list');
+  if (!list) return;
+  list.innerHTML = '<div class="loading"><span class="spinner spinner-dark"></span></div>';
+  try {
+    const followers = await api('/users/' + id + '/followers');
+    list.innerHTML = followers.length
+      ? followers.map(followerChip).join('')
+      : '<p class="muted">No followers yet. Share your profile to grow your network.</p>';
+  } catch (e) {
+    list.innerHTML = '<p class="muted">Could not load followers.</p>';
+  }
+}
+
+function followerChip(f) {
+  const href = '/u/' + encodeURIComponent(f.username);
+  return `
+    <a class="follower-chip" href="${href}" data-nav-profile="${esc(f.username)}">
+      <span class="follower-avatar">${avatarContent(f.full_name, f.profile_image)}</span>
+      <span class="follower-meta">
+        <span class="follower-name">${esc(f.full_name)}</span>
+        <span class="follower-username">@${esc(f.username)}</span>
+      </span>
+    </a>`;
+}
+
+async function toggleFollow(btn) {
+  if (!state.user) { openAuthModal('login'); toast('Sign in to follow people.'); return; }
+  const id = btn.dataset.follow;
+  const isFollowing = btn.dataset.following === 'true';
+  const span = btn.querySelector('span');
+  btn.disabled = true;
+  try {
+    await api('/users/' + id + '/follow', { method: isFollowing ? 'DELETE' : 'POST' });
+    if (state.profileOwner && state.profileOwner.id === id && state.profileTarget) {
+      await loadUserProfile(state.profileTarget);
+      return;
+    }
+    btn.dataset.following = String(!isFollowing);
+    if (span) span.textContent = isFollowing ? 'Follow' : 'Following';
+    btn.classList.toggle('btn-ghost', !isFollowing);
+    btn.classList.toggle('btn-primary', isFollowing);
+    const countEl = document.getElementById('follower-count');
+    if (countEl) countEl.textContent = state.profileOwner ? state.profileOwner.follower_count : '';
+  } catch (e) {
+    toast(e.message || 'Action failed.', 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function handleProfileEdit(e) {
+  e.preventDefault();
+  const btn = e.target.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  const payload = {
+    username: document.getElementById('pe-username').value.trim(),
+    phone: document.getElementById('pe-phone').value.trim() || null,
+    governorate: document.getElementById('pe-governorate').value || null,
+    city: document.getElementById('pe-city').value.trim() || null,
+    bio: document.getElementById('pe-bio').value.trim() || null,
+    hourly_rate: document.getElementById('pe-rate').value === '' ? null : Number(document.getElementById('pe-rate').value),
+    youtube_url: document.getElementById('pe-youtube').value.trim() || null,
+  };
+  try {
+    const data = await api('/auth/profile', { method: 'PATCH', body: JSON.stringify(payload) });
+    if (state.profile) Object.assign(state.profile, data);
+    if (state.user) {
+      if (data.username) state.user.username = data.username;
+      state.user.phone = data.phone;
+      localStorage.setItem(USER_KEY, JSON.stringify(state.user));
+    }
+    toast('Profile updated.', 'success');
+    renderApp();
+  } catch (err) {
+    toast(err.message || 'Could not save changes.', 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function copyProfileLink() {
+  const u = state.profile || state.profileOwner;
+  const url = window.location.origin + '/u/' + encodeURIComponent((u && u.username) || '');
+  const done = () => toast('Profile link copied.', 'success');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(done).catch(() => { fallbackCopy(url); done(); });
+  } else {
+    fallbackCopy(url);
+    done();
+  }
+}
+
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); } catch (e) { /* ignore */ }
+  document.body.removeChild(ta);
+}
+
+/* ── SEARCH ── */
+function viewSearch() {
+  return `
+    <section class="view">
+      <div class="view-head">
+        <h1>Search</h1>
+        <p>Find people on Careless by name, @username or phone number.</p>
+      </div>
+      <div class="toolbar">
+        <input class="form-input search" id="search-input" type="search" placeholder="Search by name, @username or phone..." value="${esc(state.searchQuery)}" autofocus />
+      </div>
+      <div class="grid-cards" id="search-results">
+        ${state.searchQuery
+          ? skeletonCards(3)
+          : '<div class="empty"><h3>Search Careless</h3><p>Look up people by their name, @username or phone number.</p></div>'}
+      </div>
+    </section>
+  `;
+}
+
+function userCard(u) {
+  const role = esc(roleLabel(u.role));
+  const loc = [u.governorate, u.city].filter(Boolean).join(', ') || 'Tunisia';
+  const href = '/u/' + encodeURIComponent(u.username);
+  const follow = state.user && state.user.id === u.id
+    ? ''
+    : `<button class="btn btn-sm ${u.is_following ? 'btn-ghost' : 'btn-primary'}" data-follow="${esc(u.id)}" data-following="${u.is_following}"><span>${u.is_following ? 'Following' : 'Follow'}</span></button>`;
+  return `
+    <article class="card user-card">
+      <div class="card-head">
+        <a class="provider-avatar" href="${href}" data-nav-profile="${esc(u.username)}">${avatarContent(u.full_name, u.profile_image)}</a>
+        <div class="user-card-info">
+          <h3 class="card-title">
+            <a href="${href}" data-nav-profile="${esc(u.username)}">${esc(u.full_name)}</a>
+            ${u.is_verified ? '<span class="badge badge-verified">&#10003;</span>' : ''}
+          </h3>
+          <p class="card-meta">@${esc(u.username)} &middot; ${role} &middot; ${esc(loc)}</p>
+        </div>
+        ${follow}
+      </div>
+      <div class="user-meta"><span>${Number(u.follower_count) || 0} followers</span></div>
+    </article>
+  `;
+}
+
+async function runSearch(q) {
+  state.searchQuery = q;
+  const results = document.getElementById('search-results');
+  if (!results) return;
+  if (q.length < 2) {
+    results.innerHTML = '<div class="empty"><h3>Search Careless</h3><p>Look up people by their name, @username or phone number.</p></div>';
+    return;
+  }
+  results.innerHTML = skeletonCards(3);
+  try {
+    const rows = await api('/search?q=' + encodeURIComponent(q));
+    state.searchResults = rows;
+    results.innerHTML = rows.length
+      ? rows.map(userCard).join('')
+      : emptyState('No results', 'No one matches "' + esc(q) + '". Try a name, @username or phone number.', null);
+    gridIntro(results);
+  } catch (e) {
+    results.innerHTML = emptyState('Search failed', e.message || 'Please try again.', null);
+  }
+}
+
+function bindSearch() {
+  const input = document.getElementById('search-input');
+  const results = document.getElementById('search-results');
+  let timer;
+  if (input) {
+    input.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => runSearch(input.value.trim()), 350);
+    });
+  }
+  if (results) {
+    results.addEventListener('click', (e) => {
+      const profileLink = e.target.closest('[data-nav-profile]');
+      if (profileLink) { e.preventDefault(); go('profile', profileLink.dataset.navProfile); return; }
+      const followBtn = e.target.closest('[data-follow]');
+      if (followBtn) toggleFollow(followBtn);
+    });
+  }
+  if (input && input.value) runSearch(input.value.trim());
+}
+
+async function uploadProfileImage(e) {
+  const file = e.target && e.target.files && e.target.files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    toast('Image too large (max 5 MB).', 'error');
+    return;
+  }
+  if (!/^image\/(png|jpe?g|gif|webp)$/i.test(file.type)) {
+    toast('Unsupported image format. Use PNG, JPEG, GIF or WebP.', 'error');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const btn = document.querySelector('.avatar-upload');
+    const label = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Uploading...'; }
+    try {
+      const data = await api('/auth/profile-image', {
+        method: 'POST',
+        body: JSON.stringify({ image: reader.result }),
+      });
+      if (state.profile) state.profile.profile_image = data.profile_image;
+      if (state.user) { state.user.profile_image = data.profile_image; localStorage.setItem(USER_KEY, JSON.stringify(state.user)); }
+      toast('Profile photo updated.', 'success');
+      renderApp();
+    } catch (err) {
+      toast(err.message || 'Upload failed.', 'error');
+    }
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  };
+  reader.onerror = () => toast('Could not read the image file.', 'error');
+  reader.readAsDataURL(file);
+  e.target.value = '';
 }
 
 /* ═══════════ EVENT BINDING ═══════════ */
@@ -844,6 +1399,25 @@ function bindView() {
   else if (v === 'post') bindPost();
   else if (v === 'messages') bindMessages();
   else if (v === 'doctors') bindDoctors();
+  else if (v === 'search') bindSearch();
+  else if (v === 'profile') {
+    if (state.profileTarget) {
+      if (!state.profileOwner || state.loadedProfileUsername !== state.profileTarget) {
+        loadUserProfile(state.profileTarget);
+      } else if (state.profileOwner) {
+        loadFollowers(state.profileOwner.id);
+      }
+    } else if (!state.profile) {
+      loadProfile();
+    }
+    const input = document.getElementById('profile-image-input');
+    if (input) input.addEventListener('change', uploadProfileImage);
+    const editForm = document.getElementById('profile-edit-form');
+    if (editForm) editForm.addEventListener('submit', handleProfileEdit);
+    const copyBtn = document.getElementById('copy-profile-link');
+    if (copyBtn) copyBtn.addEventListener('click', copyProfileLink);
+  }
+  else if (v === 'home') loadStats();
 }
 
 function bindFeed() {
@@ -895,12 +1469,8 @@ function bindFeed() {
     grid.addEventListener('click', (e) => {
       const ctaBtn = e.target.closest('[data-empty-cta]');
       if (ctaBtn) return go(ctaBtn.dataset.emptyCta);
-      const videoBtn = e.target.closest('[data-video-provider]');
-      const msgBtn = e.target.closest('[data-message-provider]');
       const applyBtn = e.target.closest('[data-apply-need]');
-      if (videoBtn) startVideoFlow(videoBtn.dataset.videoProvider);
-      else if (msgBtn) messageProvider(msgBtn.dataset.messageProvider);
-      else if (applyBtn) applyNeed();
+      if (applyBtn) applyNeed();
     });
   }
 
@@ -922,11 +1492,6 @@ function bindMessages() {
   const input = document.getElementById('chat-input');
   if (input) input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') sendMessage();
-  });
-  const panel = document.getElementById('chat-panel');
-  if (panel) panel.addEventListener('click', (e) => {
-    const videoBtn = e.target.closest('[data-video-provider]');
-    if (videoBtn) startVideoFlow(videoBtn.dataset.videoProvider);
   });
   loadConversations();
 }
@@ -1054,6 +1619,10 @@ function openAuthModal(mode) {
 function openModal(el) {
   el.classList.add('open');
   el.setAttribute('aria-hidden', 'false');
+  if (window.anime) {
+    const card = el.querySelector('.modal-card');
+    if (card) anime({ targets: card, opacity: [0, 1], translateY: [24, 0], scale: [0.96, 1], easing: 'easeOutCubic', duration: 300 });
+  }
 }
 
 function closeModal(id) {
@@ -1083,8 +1652,11 @@ async function handleAuth(e) {
     const fullName = document.getElementById('auth-full-name').value.trim();
     if (!fullName) return showAuthError('Please enter your full name.');
     if (password.length < 6) return showAuthError('Password must be at least 6 characters.');
+    const username = document.getElementById('auth-username').value.trim();
+    if (!username) return showAuthError('Please choose a username.');
+    if (!/^[a-z0-9._]{3,30}$/.test(username)) return showAuthError('Username: 3-30 characters, lowercase letters, numbers, . or _ only.');
     body = {
-      email, password,
+      email, password, username,
       full_name: fullName,
       role: document.getElementById('auth-role').value,
     };
@@ -1145,8 +1717,8 @@ function openPaymentModal(data, providerId) {
   document.getElementById('pay-details').innerHTML = `
     <div class="pay-row"><span class="lbl">Provider</span><span class="val">${esc(name)}</span></div>
     <div class="pay-row"><span class="lbl">First video consultation</span><span class="val">${esc(money(data.amount_tnd))} TND</span></div>
-    <div class="pay-row"><span class="lbl">Platform facilitation fee (${Number(data.platform_fee_percent) || 15}%)</span><span class="val">-${esc(money(data.platform_cut))} TND</span></div>
-    <div class="pay-row total"><span class="lbl">Provider receives</span><span class="val">${esc(money(data.provider_amount))} TND</span></div>
+    <div class="pay-row total"><span class="lbl">Transferred directly to provider</span><span class="val">${esc(money(data.provider_amount))} TND</span></div>
+    <p class="pay-note-inline">The full amount goes straight to the provider. Careless does not hold funds and is not responsible for the care provided.</p>
   `;
   const confirm = document.getElementById('pay-confirm');
   confirm.disabled = false;
@@ -1171,7 +1743,7 @@ async function confirmPayment() {
     });
     state.pendingPayment = null;
     closeModal('pay-modal');
-    toast('Payment confirmed. Your video consultation and chat are unlocked.', 'success');
+    toast('Payment confirmed. The amount is transferred directly to the provider.', 'success');
     go('messages');
   } catch (err) {
     toast(err.message || 'Payment confirmation failed.', 'error');
@@ -1183,13 +1755,22 @@ async function confirmPayment() {
 /* ═══════════ INIT ═══════════ */
 
 function init() {
+  const route = parseRoute();
+  state.view = route.view;
+  state.profileTarget = route.target || null;
+
+  if (state.view === 'profile' && !state.profileTarget && !localStorage.getItem(TOKEN_KEY)) {
+    state.view = 'home';
+    history.replaceState({}, '', '/');
+  }
+
   const token = localStorage.getItem(TOKEN_KEY);
   if (token) {
     try { state.user = JSON.parse(localStorage.getItem(USER_KEY) || 'null'); } catch (e) { state.user = null; }
     if (!state.user) {
       api('/auth/me')
         .then((profile) => {
-          const u = { id: profile.id, email: profile.email, full_name: profile.full_name, role: profile.role };
+          const u = { id: profile.id, email: profile.email, full_name: profile.full_name, username: profile.username, role: profile.role, profile_image: profile.profile_image };
           state.user = u;
           localStorage.setItem(USER_KEY, JSON.stringify(u));
           renderApp();
@@ -1214,6 +1795,17 @@ function init() {
     el.addEventListener('click', () => closeModal(el.dataset.close));
   });
   document.getElementById('pay-confirm').addEventListener('click', confirmPayment);
+
+  document.addEventListener('click', (e) => {
+    const profileLink = e.target.closest('[data-nav-profile]');
+    if (profileLink) { e.preventDefault(); go('profile', profileLink.dataset.navProfile); return; }
+    const followBtn = e.target.closest('[data-follow]');
+    if (followBtn) { toggleFollow(followBtn); return; }
+    const videoBtn = e.target.closest('[data-video-provider]');
+    if (videoBtn) { startVideoFlow(videoBtn.dataset.videoProvider); return; }
+    const msgBtn = e.target.closest('[data-message-provider]');
+    if (msgBtn) { messageProvider(msgBtn.dataset.messageProvider); return; }
+  });
 }
 
 document.addEventListener('DOMContentLoaded', init);
