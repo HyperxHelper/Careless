@@ -1,0 +1,18 @@
+{
+  "name": "careless---c1",
+  "version": "1.0.0",
+  "description": "An open-source marketplace connecting patients with independent healthcare providers across Tunisia.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "express": "^5.2.1",
+    "pg": "^8.22.0"
+  }
+}
