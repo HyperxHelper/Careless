@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     full_name VARCHAR(200) NOT NULL,
+    username VARCHAR(30) UNIQUE,
     phone VARCHAR(20),
     role user_role NOT NULL DEFAULT 'patient',
     governorate VARCHAR(100),
@@ -36,6 +37,8 @@ CREATE TABLE IF NOT EXISTS users (
     kyc_documents JSONB DEFAULT '[]',
     kyc_status kyc_status DEFAULT 'unverified',
     availability JSONB DEFAULT '{}',
+    profile_image VARCHAR(255),
+    youtube_url VARCHAR(255),
     is_verified BOOLEAN DEFAULT FALSE,
     is_active BOOLEAN DEFAULT TRUE,
     is_banned BOOLEAN DEFAULT FALSE,
@@ -105,6 +108,30 @@ CREATE TABLE IF NOT EXISTS doctor_waitlist (
     email VARCHAR(255) UNIQUE NOT NULL,
     role_type VARCHAR(50),
     created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS follows (
+    follower_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    following_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (follower_id, following_id)
+);
+
+-- Scheduled future feature: Careless Reels.
+-- Caregivers (nurses, doctors, students) share short intro reels.
+-- End-card shows the Careless logo + the creator's @username.
+CREATE TABLE IF NOT EXISTS reels (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title VARCHAR(140),
+    description TEXT,
+    video_url VARCHAR(500) NOT NULL,
+    thumbnail_url VARCHAR(500),
+    status VARCHAR(20) DEFAULT 'draft',
+    views_count INTEGER DEFAULT 0,
+    likes_count INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Indexes
