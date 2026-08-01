@@ -2,6 +2,12 @@
 
 An open-source marketplace connecting patients with independent healthcare providers across Tunisia.
 
+> **Mission:** make healthcare affordable and accessible to everyone in Tunisia — patients, families, nurses, doctors and caregivers.
+>
+> **Slogan:** _You should careless, we'll care more!_
+
+The slogan is the brand promise: you can drop the worry — Careless (care + less) exists so that caring for your health never feels like a burden. Users sign up in seconds, providers set their own TND rates, and every relationship starts with a secure video consultation.
+
 ## Stack
 
 - **Frontend:** HTML5 + custom CSS design system (`public/styles.css`), Vanilla JS single-page app with a lightweight client-side router (`public/app.js`), Anime.js for UI animations
@@ -64,7 +70,7 @@ The API and the frontend are served from the same server. Access the application
 
 **Navigation** — a sticky, structured top bar on desktop groups destinations into logical sections (Browse / Connect) with a prominent **Post a Need** call-to-action and a clickable avatar chip that opens your profile. On tablets and phones the top bar collapses to a fixed bottom tab bar (Home, Feed, Search, Messages) with a raised center **Post** action button — the app always remains navigable regardless of screen size. Unauthenticated visitors get Search access plus Sign In / Sign Up actions; every route has a keyboard-focusable skip link and mobile-safe tap targets.
 
-- **Home** — hero, live statistics band, trust signals, how-it-works, safety notices (SAMU 190)
+- **Home** — mission band (Open Healthcare Network + slogan "You should careless, we'll care more!"), hero, live statistics band, trust signals, how-it-works, safety notices (SAMU 190)
 - **Care Feed** — provider / care-need segments with live search, governorate and role filters; every card shows the creator's `@username` with a link to their public profile
 - **Search** — find people by name, `@username` or phone number; results show avatar, role, location and follower count with one-click follow
 - **Post a Need** — care-need form wired to `POST /api/feed/needs`

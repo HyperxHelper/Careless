@@ -335,6 +335,15 @@ function renderView() {
 function viewHome() {
   return `
     <section class="view">
+      <div class="mission-band" data-intro>
+        <div class="mission-mark">C</div>
+        <div class="mission-text">
+          <span class="mission-kicker">Open Healthcare Network</span>
+          <p class="mission-copy">A Tunisian network working to make healthcare affordable and accessible to everyone &mdash; patients, families, nurses, doctors and caregivers.</p>
+          <p class="mission-slogan">You should careless, we&rsquo;ll care more!</p>
+        </div>
+      </div>
+
       <div class="hero">
         <span class="hero-badge" data-intro>&#10003; Trusted open healthcare network</span>
         <h1 class="hero-title" data-intro>Healthcare that <em>stays</em> in Tunisia</h1>
