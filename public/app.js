@@ -57,6 +57,9 @@ const I = {
   doctors: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
   search: '<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
   profile: '<circle cx="12" cy="8" r="4"/><path d="M6 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>',
+  menu: '<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>',
+  back: '<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>',
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>',
 };
 
 function icon(id, cls) {
@@ -78,12 +81,19 @@ function avatarContent(name, image) {
   return image ? `<img src="${esc(image)}" alt="" loading="lazy" />` : esc(initials(name));
 }
 
-function youtubeEmbed(url) {
+function extractYoutubeId(url) {
   if (!url) return null;
-  const m = String(url).match(
-    /(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{6,20})/
-  );
-  return m ? 'https://www.youtube-nocookie.com/embed/' + m[1] : null;
+  const u = String(url).trim();
+  const m = u.match(/(?:youtube\.com|youtube-nocookie\.com)\/watch\?[^#]*\bv=([A-Za-z0-9_-]{6,20})/)
+    || u.match(/(?:youtube\.com|youtube-nocookie\.com)\/(?:embed|shorts|live|v)\/([A-Za-z0-9_-]{6,20})/)
+    || u.match(/youtu\.be\/([A-Za-z0-9_-]{6,20})/);
+  return m ? m[1] : null;
+}
+
+function youtubeEmbed(url) {
+  const id = extractYoutubeId(url);
+  if (!id) return null;
+  return `<iframe src="https://www.youtube-nocookie.com/embed/${id}" title="YouTube presentation video" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen loading="lazy"></iframe>`;
 }
 
 function money(v) {
@@ -197,10 +207,35 @@ function renderApp() {
          <span class="user-name">${esc(user.full_name.split(' ')[0])}</span>
        </button>
        <button class="icon-btn header-search" data-nav="search" aria-label="Search">${icon('search')}</button>
-       <button class="btn btn-ghost btn-sm" data-action="logout">Sign Out</button>`
+       <button class="btn btn-ghost btn-sm header-signout" data-action="logout">Sign Out</button>
+       <button class="icon-btn header-menu" data-action="menu" aria-label="Open menu" aria-expanded="false">${icon('menu')}</button>`
     : `<button class="icon-btn header-search" data-nav="search" aria-label="Search">${icon('search')}</button>
-       <button class="btn btn-ghost btn-sm" data-action="login">Sign In</button>
-       <button class="btn btn-primary btn-sm" data-action="signup">Sign Up</button>`;
+       <button class="btn btn-ghost btn-sm header-signin" data-action="login">Sign In</button>
+       <button class="btn btn-primary btn-sm header-signup" data-action="signup">Sign Up</button>
+       <button class="icon-btn header-menu" data-action="menu" aria-label="Open menu" aria-expanded="false">${icon('menu')}</button>`;
+
+  const menuItems = [
+    ['home', 'Home'], ['feed', 'Care Feed'], ['search', 'Search'],
+    ['messages', 'Messages'], ['doctors', 'Doctors'], ['post', 'Post a Need'],
+  ];
+  if (user) menuItems.push(['profile', 'My Profile']);
+
+  const mobileMenu = `
+    <div class="mobile-menu" id="mobile-menu" aria-hidden="true">
+      <div class="mobile-menu-group">
+        ${menuItems.map(([id, label]) => `
+          <button class="mobile-menu-item${v === id ? ' active' : ''}" data-nav="${id}">
+            ${icon(id, 'menu-icon')}<span>${esc(label)}</span>
+          </button>`).join('')}
+      </div>
+      <div class="mobile-menu-footer">
+        ${user
+          ? `<button class="mobile-menu-item" data-action="logout">${icon('logout', 'menu-icon')}<span>Sign Out</span></button>`
+          : `<button class="mobile-menu-item" data-action="login">${icon('profile', 'menu-icon')}<span>Sign In</span></button>
+             <button class="mobile-menu-item" data-action="signup">${icon('profile', 'menu-icon')}<span>Create Account</span></button>`}
+      </div>
+    </div>
+  `;
 
   const bottomItem = ([id, label]) =>
     `<button class="nav-item${v === id ? ' active' : ''}" data-nav="${id}">${icon(id)}<span>${esc(label)}</span></button>`;
@@ -227,6 +262,8 @@ function renderApp() {
         <div class="header-actions">${headerActions}</div>
       </div>
     </header>
+
+    ${mobileMenu}
 
     <main class="main">
       <div class="container">${renderView()}</div>
@@ -271,11 +308,32 @@ function bindShell() {
   document.querySelectorAll('[data-action]').forEach((el) => {
     el.addEventListener('click', () => {
       const a = el.dataset.action;
+      if (a === 'menu') { toggleMobileMenu(); return; }
+      closeMobileMenu();
       if (a === 'login') openAuthModal('login');
       else if (a === 'signup') openAuthModal('signup');
       else if (a === 'logout') logout();
     });
   });
+}
+
+function toggleMobileMenu() {
+  const menu = document.getElementById('mobile-menu');
+  const btn = document.querySelector('.header-menu');
+  if (!menu) return;
+  const open = menu.classList.toggle('open');
+  if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  menu.setAttribute('aria-hidden', open ? 'false' : 'true');
+}
+
+function closeMobileMenu() {
+  const menu = document.getElementById('mobile-menu');
+  const btn = document.querySelector('.header-menu');
+  if (menu && menu.classList.contains('open')) {
+    menu.classList.remove('open');
+    menu.setAttribute('aria-hidden', 'true');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  }
 }
 
 function go(view, target) {
@@ -528,7 +586,7 @@ function providerCard(p) {
     : '<div class="rate"><span class="rate-none">Rate on request</span></div>';
   const username = p.username ? `<a class="card-username" href="/u/${encodeURIComponent(p.username)}" data-nav-profile="${esc(p.username)}">@${esc(p.username)}</a>` : '';
   const profileHref = '/u/' + encodeURIComponent(p.username || '');
-  const viewProfile = p.username ? `<a class="btn btn-ghost btn-sm" href="${profileHref}" data-nav-profile="${esc(p.username)}">View Profile</a>` : '';
+  const viewProfile = p.username ? `<a class="btn btn-ghost" href="${profileHref}" data-nav-profile="${esc(p.username)}">View Profile</a>` : '';
   return `
     <article class="card provider-card">
       <div class="card-head">
@@ -543,9 +601,11 @@ function providerCard(p) {
       ${rate}
       <p class="bio">${esc(p.bio || 'No bio available yet.')}</p>
       <div class="card-actions">
-        ${viewProfile}
-        <button class="btn btn-secondary" data-message-provider="${esc(p.id)}">Message</button>
-        <button class="btn btn-primary" data-video-provider="${esc(p.id)}">Book Video Consult</button>
+        <div class="card-actions-row">
+          ${viewProfile}
+          <button class="btn btn-secondary" data-message-provider="${esc(p.id)}">Message</button>
+        </div>
+        <button class="btn btn-primary btn-hire" data-video-provider="${esc(p.id)}">Book Video Consult</button>
       </div>
     </article>
   `;
@@ -675,7 +735,7 @@ function viewMessages() {
         <h1>Messages</h1>
         <p>Chat unlocks after the first paid video consultation.</p>
       </div>
-      <div class="msg-layout">
+      <div class="msg-layout" id="msg-layout">
         <aside class="conv-list" id="conv-list" aria-label="Conversations">
           <div class="loading"><span class="spinner spinner-dark"></span> Loading conversations...</div>
         </aside>
@@ -731,16 +791,22 @@ function renderConversations() {
 async function selectConversation(id) {
   state.activeConv = id;
   renderConversations();
+  const layout = document.getElementById('msg-layout');
+  if (layout) layout.classList.add('conv-open');
   const panel = document.getElementById('chat-panel');
   const conv = state.conversations.find((c) => c.id === id);
   if (!conv) { panel.innerHTML = ''; return; }
+  const viewSection = panel.closest('.view');
+  if (viewSection) viewSection.classList.add('conv-view');
 
   const isPatient = conv.patient_id === state.user.id;
   const otherName = isPatient ? conv.provider_name : conv.patient_name;
   const otherId = isPatient ? conv.provider_id : conv.patient_id;
+  const backBtn = `<button class="icon-btn chat-back" data-action="conv-back" aria-label="Back to conversations">${icon('back')}</button>`;
 
   if (!conv.is_chat_unlocked) {
     panel.innerHTML = `
+      <div class="chat-head">${backBtn}<div><strong>${esc(otherName)}</strong><span class="chat-sub">${esc(isPatient ? 'Provider' : 'Patient')}</span></div></div>
       <div class="chat-body">
         <div class="locked">
           <div class="lock-icon">&#128274;</div>
@@ -755,6 +821,7 @@ async function selectConversation(id) {
 
   panel.innerHTML = `
     <div class="chat-head">
+      ${backBtn}
       <div><strong>${esc(otherName)}</strong><span class="chat-sub">${esc(isPatient ? 'Provider' : 'Patient')}</span></div>
       <button class="btn btn-secondary btn-sm" data-video-provider="${esc(otherId)}">${icon('video', 'btn-icon')} Video</button>
     </div>
@@ -884,9 +951,12 @@ async function loadWaitlistCount() {
 /* ── STATS & ANIMATIONS ── */
 function countUp(el, to) {
   const target = Number(to) || 0;
-  if (window.anime) {
-    const obj = { v: 0 };
-    anime({ targets: obj, v: target, easing: 'easeOutExpo', duration: 1600, round: 1, update: () => { el.textContent = Math.round(obj.v); } });
+  if (window.Motion) {
+    window.Motion.animate(0, target, {
+      duration: 1.6,
+      ease: 'easeOut',
+      onUpdate: (v) => { el.textContent = Math.round(v); },
+    });
   } else {
     el.textContent = target;
   }
@@ -901,17 +971,25 @@ async function loadStats() {
 }
 
 function pageIntro() {
-  if (!window.anime) return;
+  if (!window.Motion) return;
   const els = document.querySelectorAll('[data-intro]');
   if (!els.length) return;
-  anime({ targets: els, opacity: [0, 1], translateY: [18, 0], easing: 'easeOutCubic', duration: 550, delay: anime.stagger(85) });
+  window.Motion.animate(els, { opacity: [0, 1], y: [18, 0] }, {
+    duration: 0.55,
+    ease: 'easeOut',
+    delay: window.Motion.stagger(0.085),
+  });
 }
 
 function gridIntro(grid) {
-  if (!window.anime) return;
+  if (!window.Motion) return;
   const cards = grid ? grid.querySelectorAll('.card') : document.querySelectorAll('.grid-cards .card');
   if (!cards.length) return;
-  anime({ targets: cards, opacity: [0, 1], translateY: [20, 0], easing: 'easeOutCubic', duration: 480, delay: anime.stagger(55) });
+  window.Motion.animate(Array.from(cards), { opacity: [0, 1], y: [20, 0] }, {
+    duration: 0.48,
+    ease: 'easeOut',
+    delay: window.Motion.stagger(0.055),
+  });
 }
 
 /* ── PROFILE ── */
@@ -938,7 +1016,7 @@ function viewOwnProfile() {
   const { role, loc, verified, rating, specs } = profileMeta(p);
   const youTube = youtubeEmbed(p.youtube_url);
   const presentation = youTube
-    ? `<section class="section">
+    ? `<section class="section presentation">
         <div class="section-head"><h2 class="section-title">Presentation</h2><p class="section-sub">Your introduction video, hosted on YouTube.</p></div>
         <div class="video-embed">${youTube}</div>
       </section>`
@@ -968,12 +1046,15 @@ function viewOwnProfile() {
         </div>
       </div>
 
-      ${p.hourly_rate ? `<div class="rate" style="margin-bottom:18px;"><span class="rate-amount">${esc(money(p.hourly_rate))} TND</span><span class="rate-period">/ hour</span></div>` : ''}
+      <div class="profile-body">
+        ${p.hourly_rate
+          ? `<div class="profile-extra"><div class="rate"><span class="rate-amount">${esc(money(p.hourly_rate))} TND</span><span class="rate-period">/ hour</span></div></div>`
+          : ''}
 
-      ${presentation}
+        ${presentation}
 
       <section class="section">
-        <div class="form-card" style="max-width:820px;">
+        <div class="form-card">
           <div class="section-head"><h2 class="section-title">Edit public profile</h2><p class="section-sub">This information is visible to everyone on Careless.</p></div>
           <form id="profile-edit-form" novalidate>
             <div class="form-grid">
@@ -1002,14 +1083,20 @@ function viewOwnProfile() {
                 <input class="form-input" id="pe-rate" type="number" min="0" step="0.5" value="${p.hourly_rate != null ? esc(p.hourly_rate) : ''}" placeholder="e.g. 25" />
               </div>
               <div class="form-field">
+                <label class="form-label" for="pe-specialties">Specialties</label>
+                <input class="form-input" id="pe-specialties" value="${esc(Array.isArray(p.specialties) ? p.specialties.join(', ') : '')}" placeholder="e.g. Wound care, Diabetes education, Elderly care" autocomplete="off" />
+                <p class="hint">Comma-separated list shown on your public profile and care feed card.</p>
+              </div>
+              <div class="form-field">
                 <label class="form-label" for="pe-youtube">YouTube presentation</label>
                 <input class="form-input" id="pe-youtube" type="url" value="${esc(p.youtube_url || '')}" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off" />
                 <p class="hint">Paste a YouTube link to your intro/presentation video. It plays on your public profile.</p>
+                <div class="video-preview" id="pe-youtube-preview"${youTube ? '' : ' hidden'}>${youTube ? youTube : ''}</div>
               </div>
             </div>
             <div class="form-field">
               <label class="form-label" for="pe-bio">Bio</label>
-              <textarea class="form-input" id="pe-bio" rows="3" placeholder="Tell people about your care...">${esc(p.bio || '')}</textarea>
+              <textarea class="form-textarea" id="pe-bio" rows="3" placeholder="Tell people about your care...">${esc(p.bio || '')}</textarea>
             </div>
             <button class="btn btn-primary" type="submit">Save changes</button>
           </form>
@@ -1033,6 +1120,7 @@ function viewOwnProfile() {
           <div class="kv-item"><span class="kv-label">KYC status</span><span class="kv-value">${esc(p.kyc_status || 'unverified')}</span></div>
         </div>
       </div>
+      </div>
     </section>
   `;
 }
@@ -1054,10 +1142,12 @@ function viewPublicProfile() {
     : `<button class="btn ${p.is_following ? 'btn-ghost' : 'btn-primary'}" data-follow="${esc(p.id)}" data-following="${p.is_following}"><span>${p.is_following ? 'Following' : 'Follow'}</span></button>`;
   const actions = isOwn
     ? `<button class="btn btn-ghost btn-sm" data-nav="profile">Edit profile</button>`
-    : `<div class="hero-actions" style="margin:0;">
-        ${followBtn}
-        ${providerRole ? `<button class="btn btn-secondary" data-message-provider="${esc(p.id)}">Message</button>
-        <button class="btn btn-primary" data-video-provider="${esc(p.id)}">Book Video Consult</button>` : ''}
+    : `<div class="profile-actions">
+        <div class="profile-actions-row">
+          ${followBtn}
+          ${providerRole ? `<button class="btn btn-secondary" data-message-provider="${esc(p.id)}">Message</button>` : ''}
+        </div>
+        ${providerRole ? `<button class="btn btn-primary btn-hire" data-video-provider="${esc(p.id)}">Book Video Consult</button>` : ''}
       </div>`;
 
   const phoneBlock = p.phone_locked
@@ -1074,7 +1164,7 @@ function viewPublicProfile() {
 
   const youTube = youtubeEmbed(p.youtube_url);
   const presentation = youTube
-    ? `<section class="section">
+    ? `<section class="section presentation">
         <div class="section-head"><h2 class="section-title">Presentation</h2><p class="section-sub">${esc(p.full_name.split(' ')[0])}'s introduction, hosted on YouTube.</p></div>
         <div class="video-embed">${youTube}</div>
       </section>`
@@ -1103,32 +1193,34 @@ function viewPublicProfile() {
         <div class="profile-header-actions">${actions}</div>
       </div>
 
-      <div class="profile-extra">
-        ${p.hourly_rate
-          ? `<div class="rate"><span class="rate-amount">${esc(money(p.hourly_rate))} TND</span><span class="rate-period">/ hour</span></div>`
-          : ''}
-        ${phoneBlock}
-      </div>
-
-      ${presentation}
-
-      <div class="grid-2">
-        <div class="form-card">
-          <h2 class="section-title" style="font-size:1.1rem; margin-bottom:14px;">About</h2>
-          <div class="kv-item"><span class="kv-label">Member since</span><span class="kv-value">${esc(new Date(p.created_at).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }))}</span></div>
-          ${phoneBlock ? `<div class="kv-item"><span class="kv-label">Phone</span><span class="kv-value">Hidden until followed</span></div>` : ''}
+      <div class="profile-body">
+        <div class="profile-extra">
+          ${p.hourly_rate
+            ? `<div class="rate"><span class="rate-amount">${esc(money(p.hourly_rate))} TND</span><span class="rate-period">/ hour</span></div>`
+            : ''}
+          ${phoneBlock}
         </div>
-        <div class="form-card">
-          <h2 class="section-title" style="font-size:1.1rem; margin-bottom:14px;">Professional</h2>
-          <div class="kv-item"><span class="kv-label">Specialties</span><span class="kv-value">${Array.isArray(p.specialties) && p.specialties.length ? esc(p.specialties.join(', ')) : '—'}</span></div>
-          <div class="kv-item"><span class="kv-label">License issuer</span><span class="kv-value">${esc(p.license_issuer || '—')}</span></div>
-        </div>
-      </div>
 
-      <section class="section">
-        <div class="section-head"><h2 class="section-title">Followers</h2></div>
-        <div id="followers-list" class="followers-list"><div class="loading"><span class="spinner spinner-dark"></span></div></div>
-      </section>
+        ${presentation}
+
+        <div class="grid-2">
+          <div class="form-card">
+            <h2 class="section-title" style="font-size:1.1rem; margin-bottom:14px;">About</h2>
+            <div class="kv-item"><span class="kv-label">Member since</span><span class="kv-value">${esc(new Date(p.created_at).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }))}</span></div>
+            ${p.phone_locked ? `<div class="kv-item"><span class="kv-label">Phone</span><span class="kv-value">Hidden until followed</span></div>` : ''}
+          </div>
+          <div class="form-card">
+            <h2 class="section-title" style="font-size:1.1rem; margin-bottom:14px;">Professional</h2>
+            <div class="kv-item"><span class="kv-label">Specialties</span><span class="kv-value">${Array.isArray(p.specialties) && p.specialties.length ? esc(p.specialties.join(', ')) : '—'}</span></div>
+            <div class="kv-item"><span class="kv-label">License issuer</span><span class="kv-value">${esc(p.license_issuer || '—')}</span></div>
+          </div>
+        </div>
+
+        <section class="section">
+          <div class="section-head"><h2 class="section-title">Followers</h2></div>
+          <div id="followers-list" class="followers-list"><div class="loading"><span class="spinner spinner-dark"></span></div></div>
+        </section>
+      </div>
     </section>
   `;
 }
@@ -1219,6 +1311,8 @@ async function handleProfileEdit(e) {
     city: document.getElementById('pe-city').value.trim() || null,
     bio: document.getElementById('pe-bio').value.trim() || null,
     hourly_rate: document.getElementById('pe-rate').value === '' ? null : Number(document.getElementById('pe-rate').value),
+    specialties: (document.getElementById('pe-specialties').value || '')
+      .split(',').map((s) => s.trim()).filter(Boolean).slice(0, 12),
     youtube_url: document.getElementById('pe-youtube').value.trim() || null,
   };
   try {
@@ -1383,6 +1477,19 @@ async function uploadProfileImage(e) {
   e.target.value = '';
 }
 
+function updateYoutubePreview(url) {
+  const preview = document.getElementById('pe-youtube-preview');
+  if (!preview) return;
+  const embed = youtubeEmbed(url);
+  if (embed) {
+    preview.innerHTML = embed;
+    preview.classList.remove('hidden');
+  } else {
+    preview.innerHTML = '';
+    preview.classList.add('hidden');
+  }
+}
+
 /* ═══════════ EVENT BINDING ═══════════ */
 
 function bindView() {
@@ -1425,6 +1532,8 @@ function bindView() {
     if (editForm) editForm.addEventListener('submit', handleProfileEdit);
     const copyBtn = document.getElementById('copy-profile-link');
     if (copyBtn) copyBtn.addEventListener('click', copyProfileLink);
+    const youtubeInput = document.getElementById('pe-youtube');
+    if (youtubeInput) youtubeInput.addEventListener('input', () => updateYoutubePreview(youtubeInput.value));
   }
   else if (v === 'home') loadStats();
 }
@@ -1628,9 +1737,9 @@ function openAuthModal(mode) {
 function openModal(el) {
   el.classList.add('open');
   el.setAttribute('aria-hidden', 'false');
-  if (window.anime) {
+  if (window.Motion) {
     const card = el.querySelector('.modal-card');
-    if (card) anime({ targets: card, opacity: [0, 1], translateY: [24, 0], scale: [0.96, 1], easing: 'easeOutCubic', duration: 300 });
+    if (card) window.Motion.animate(card, { opacity: [0, 1], y: [24, 0], scale: [0.96, 1] }, { duration: 0.3, ease: 'easeOut' });
   }
 }
 
@@ -1806,6 +1915,8 @@ function init() {
   document.getElementById('pay-confirm').addEventListener('click', confirmPayment);
 
   document.addEventListener('click', (e) => {
+    const backBtn = e.target.closest('[data-action="conv-back"]');
+    if (backBtn) { state.activeConv = null; renderApp(); return; }
     const profileLink = e.target.closest('[data-nav-profile]');
     if (profileLink) { e.preventDefault(); go('profile', profileLink.dataset.navProfile); return; }
     const followBtn = e.target.closest('[data-follow]');
@@ -1814,6 +1925,7 @@ function init() {
     if (videoBtn) { startVideoFlow(videoBtn.dataset.videoProvider); return; }
     const msgBtn = e.target.closest('[data-message-provider]');
     if (msgBtn) { messageProvider(msgBtn.dataset.messageProvider); return; }
+    if (!e.target.closest('.mobile-menu') && !e.target.closest('.header-menu')) closeMobileMenu();
   });
 }
 

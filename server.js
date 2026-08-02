@@ -85,9 +85,10 @@ function optionalAuth(req) {
 
 function youtubeId(url) {
   if (typeof url !== 'string') return null;
-  const m = url.trim().match(
-    /(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{6,20})/
-  );
+  const u = url.trim();
+  const m = u.match(/(?:youtube\.com|youtube-nocookie\.com)\/watch\?[^#]*\bv=([A-Za-z0-9_-]{6,20})/)
+    || u.match(/(?:youtube\.com|youtube-nocookie\.com)\/(?:embed|shorts|live|v)\/([A-Za-z0-9_-]{6,20})/)
+    || u.match(/youtu\.be\/([A-Za-z0-9_-]{6,20})/);
   return m ? m[1] : null;
 }
 
@@ -648,7 +649,7 @@ app.patch('/api/auth/profile', async (req, res) => {
     const user = requireAuth(req, res);
     if (!user) return;
 
-    const { username: rawUsername, phone, governorate, city, bio, hourly_rate, youtube_url: rawYoutube } = req.body;
+    const { username: rawUsername, phone, governorate, city, bio, hourly_rate, specialties, youtube_url: rawYoutube } = req.body;
     const updates = [];
     const params = [];
     let i = 1;
@@ -679,6 +680,14 @@ app.patch('/api/auth/profile', async (req, res) => {
       updates.push(`youtube_url = $${i++}`);
       params.push(trimmed || null);
     }
+    if (specialties !== undefined) {
+      const items = Array.isArray(specialties)
+        ? specialties
+        : String(specialties).split(',').map((s) => s.trim()).filter(Boolean);
+      const clean = items.slice(0, 12).map((s) => String(s).slice(0, 60));
+      updates.push(`specialties = $${i++}`);
+      params.push(JSON.stringify(clean));
+    }
 
     if (updates.length === 0) return res.status(400).json({ error: 'Nothing to update' });
 
@@ -686,7 +695,7 @@ app.patch('/api/auth/profile', async (req, res) => {
     let result;
     try {
       result = await pool.query(
-        `UPDATE users SET ${updates.join(', ')} WHERE id = $${i} RETURNING id, username, phone, governorate, city, bio, hourly_rate, profile_image, youtube_url`,
+        `UPDATE users SET ${updates.join(', ')} WHERE id = $${i} RETURNING id, username, phone, governorate, city, bio, hourly_rate, specialties, profile_image, youtube_url`,
         params
       );
     } catch (e) {
@@ -709,7 +718,7 @@ app.get('/api/users/:username', async (req, res) => {
 
     const result = await pool.query(
       `SELECT id, username, full_name, role, governorate, city, bio, hourly_rate,
-              specialties, rating, review_count, is_verified, license_issuer, profile_image, created_at, phone, youtube_url
+              specialties, rating, review_count, is_verified, kyc_status, license_issuer, profile_image, created_at, phone, youtube_url
        FROM users
        WHERE username = $1 AND is_active = TRUE AND is_banned = FALSE`, [username]
     );
